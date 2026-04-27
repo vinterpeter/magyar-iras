@@ -26,49 +26,110 @@ type Props = {
   template: string;
   width: number;
   height: number;
-  fontFamily?: string;
-  fontWeight?: string;
 };
 
-const TEMPLATE_COLOR = '#cbd5e1';
-const INK_COLOR = '#1e3a8a';
+// Vonalrendszer: 4 zóna függőlegesen, mint a Betűbarangolóban
+const TOP_RATIO = 0.16;        // felső segédvonal (felszárak teteje)
+const X_HEIGHT_RATIO = 0.46;   // x-magasság (kis kerek betűk teteje)
+const BASELINE_RATIO = 0.78;   // alapvonal
+const BOTTOM_RATIO = 0.98;     // alsó segédvonal (alszárak alja)
+
+const TEMPLATE_COLOR = '#bfdbfe';     // halvány kék — mint a könyvben
+const INK_COLOR = '#1e3a8a';          // sötétkék toll
 const ALPHA_THRESHOLD = 30;
+const FONT_FAMILY = '"Playwrite HU", "Playwrite Magyarország", cursive';
 
 export const WritingCanvas = forwardRef<WritingCanvasHandle, Props>(
-  function WritingCanvas(
-    { template, width, height, fontFamily, fontWeight = '700' },
-    ref,
-  ) {
+  function WritingCanvas({ template, width, height }, ref) {
+    const linesRef = useRef<HTMLCanvasElement | null>(null);
     const templateRef = useRef<HTMLCanvasElement | null>(null);
     const userRef = useRef<HTMLCanvasElement | null>(null);
     const strokesRef = useRef<Stroke[]>([]);
     const currentStrokeRef = useRef<Stroke | null>(null);
 
-    const renderTemplate = () => {
+    const renderLines = () => {
+      const c = linesRef.current;
+      if (!c) return;
+      const ctx = c.getContext('2d');
+      if (!ctx) return;
+      ctx.clearRect(0, 0, width, height);
+
+      const topY = Math.round(height * TOP_RATIO);
+      const xHeightY = Math.round(height * X_HEIGHT_RATIO);
+      const baselineY = Math.round(height * BASELINE_RATIO);
+      const bottomY = Math.round(height * BOTTOM_RATIO);
+      const margin = 16;
+
+      // x-magasság vonal (szaggatott halvány)
+      ctx.setLineDash([6, 8]);
+      ctx.strokeStyle = '#cbd5e1';
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.moveTo(margin, xHeightY);
+      ctx.lineTo(width - margin, xHeightY);
+      ctx.stroke();
+      ctx.setLineDash([]);
+
+      // Felső segédvonal
+      ctx.strokeStyle = '#93c5fd';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(margin, topY);
+      ctx.lineTo(width - margin, topY);
+      ctx.stroke();
+
+      // Alapvonal (vastagabb, hangsúlyos)
+      ctx.strokeStyle = '#1d4ed8';
+      ctx.lineWidth = 2.5;
+      ctx.beginPath();
+      ctx.moveTo(margin, baselineY);
+      ctx.lineTo(width - margin, baselineY);
+      ctx.stroke();
+
+      // Alsó segédvonal
+      ctx.strokeStyle = '#93c5fd';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(margin, bottomY);
+      ctx.lineTo(width - margin, bottomY);
+      ctx.stroke();
+    };
+
+    const renderTemplate = async () => {
       const c = templateRef.current;
       if (!c) return;
       const ctx = c.getContext('2d', { willReadFrequently: true });
       if (!ctx) return;
       ctx.clearRect(0, 0, width, height);
-      ctx.fillStyle = TEMPLATE_COLOR;
-      const isWord = template.length > 1;
-      const targetWidth = width * (isWord ? 0.92 : 0.7);
-      const targetHeight = height * 0.78;
-      // pick a font size that fits
-      let size = Math.min(targetHeight, targetWidth);
-      const family =
-        fontFamily ??
-        '"Andika", "Atkinson Hyperlegible", "Comic Sans MS", "Chalkboard SE", "SF Pro Rounded", system-ui, sans-serif';
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      // shrink to fit width if needed
-      ctx.font = `${fontWeight} ${size}px ${family}`;
-      let measured = ctx.measureText(template).width;
-      if (measured > targetWidth) {
-        size = size * (targetWidth / measured);
-        ctx.font = `${fontWeight} ${size}px ${family}`;
+
+      const topY = Math.round(height * TOP_RATIO);
+      const baselineY = Math.round(height * BASELINE_RATIO);
+      const ascenderZone = baselineY - topY;
+
+      // Playwrite HU: az em ~70-75%-a a felszáras magasság
+      let fontSize = Math.round(ascenderZone / 0.7);
+
+      // Várjuk meg, hogy a font betöltődjön (különben fallback fonttal renderelne)
+      try {
+        await document.fonts.load(`400 ${fontSize}px "Playwrite HU"`);
+      } catch {
+        /* nem fatális */
       }
-      ctx.fillText(template, width / 2, height / 2);
+
+      ctx.font = `400 ${fontSize}px ${FONT_FAMILY}`;
+      ctx.textBaseline = 'alphabetic';
+      ctx.textAlign = 'center';
+
+      // Ha a szó túl széles, kicsinyítsük
+      const margin = 32;
+      let measured = ctx.measureText(template).width;
+      if (measured > width - margin * 2) {
+        fontSize = Math.round(fontSize * (width - margin * 2) / measured);
+        ctx.font = `400 ${fontSize}px ${FONT_FAMILY}`;
+      }
+
+      ctx.fillStyle = TEMPLATE_COLOR;
+      ctx.fillText(template, width / 2, baselineY);
     };
 
     const renderUserStrokes = () => {
@@ -85,7 +146,7 @@ export const WritingCanvas = forwardRef<WritingCanvasHandle, Props>(
         if (stroke.length === 0) continue;
         if (stroke.length === 1) {
           const p = stroke[0];
-          const r = 10 + (p.pressure || 0.5) * 8;
+          const r = 8 + (p.pressure || 0.5) * 8;
           ctx.beginPath();
           ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
           ctx.fill();
@@ -94,7 +155,8 @@ export const WritingCanvas = forwardRef<WritingCanvasHandle, Props>(
         for (let i = 1; i < stroke.length; i++) {
           const a = stroke[i - 1];
           const b = stroke[i];
-          ctx.lineWidth = 18 + ((a.pressure + b.pressure) / 2 || 1) * 14;
+          const avgPressure = ((a.pressure || 0.5) + (b.pressure || 0.5)) / 2;
+          ctx.lineWidth = 12 + avgPressure * 14;
           ctx.beginPath();
           ctx.moveTo(a.x, a.y);
           ctx.lineTo(b.x, b.y);
@@ -104,8 +166,15 @@ export const WritingCanvas = forwardRef<WritingCanvasHandle, Props>(
     };
 
     useEffect(() => {
-      renderTemplate();
+      renderLines();
+      void renderTemplate();
       renderUserStrokes();
+      // re-render template once fonts are loaded (in case it loaded during initial render)
+      const onFontsLoaded = () => void renderTemplate();
+      document.fonts.addEventListener('loadingdone', onFontsLoaded);
+      return () => {
+        document.fonts.removeEventListener('loadingdone', onFontsLoaded);
+      };
       // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [template, width, height]);
 
@@ -120,7 +189,6 @@ export const WritingCanvas = forwardRef<WritingCanvasHandle, Props>(
     };
 
     const onPointerDown = (e: React.PointerEvent) => {
-      // Reject mouse-right-click etc.
       if (e.button !== 0 && e.pointerType === 'mouse') return;
       e.preventDefault();
       (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
@@ -175,7 +243,7 @@ export const WritingCanvas = forwardRef<WritingCanvasHandle, Props>(
           }
           const coverage = templatePx > 0 ? intersection / templatePx : 0;
           const outsideRatio = userPx > 0 ? outside / userPx : 0;
-          const rawScore = coverage * 130 - outsideRatio * 50;
+          const rawScore = coverage * 140 - outsideRatio * 50;
           const score = Math.max(0, Math.min(100, Math.round(rawScore)));
           const stars =
             score >= 90 ? 4 : score >= 70 ? 3 : score >= 45 ? 2 : 1;
@@ -202,6 +270,12 @@ export const WritingCanvas = forwardRef<WritingCanvasHandle, Props>(
           touchAction: 'none',
         }}
       >
+        <canvas
+          ref={linesRef}
+          width={width}
+          height={height}
+          className="absolute inset-0 w-full h-full pointer-events-none"
+        />
         <canvas
           ref={templateRef}
           width={width}

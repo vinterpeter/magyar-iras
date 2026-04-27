@@ -25,14 +25,14 @@ export function Practice({ mode, items, label, onBack }: Props) {
 
   const current = items[index];
 
-  // canvas backing size — wider for words
+  // canvas backing size — vonalrendszer + folyóírás arányok
   const { width, height } = useMemo(() => {
     if (mode === 'word') {
       const minW = 800;
-      const w = Math.max(minW, current.length * 220);
-      return { width: w, height: 500 };
+      const w = Math.min(1800, Math.max(minW, current.length * 180 + 200));
+      return { width: w, height: 460 };
     }
-    return { width: 700, height: 700 };
+    return { width: 600, height: 520 };
   }, [mode, current]);
 
   useEffect(() => {
@@ -130,7 +130,10 @@ export function Practice({ mode, items, label, onBack }: Props) {
         >
           ← Előző
         </button>
-        <div className="text-2xl font-bold text-slate-400 tracking-wide">
+        <div
+          className="text-3xl text-slate-500 tracking-wide"
+          style={{ fontFamily: '"Playwrite HU", cursive' }}
+        >
           {current}
         </div>
         <button
