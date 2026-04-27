@@ -26,13 +26,18 @@ type Props = {
   template: string;
   width: number;
   height: number;
+  repeat?: number;
 };
 
 // Vonalrendszer: 4 zóna függőlegesen, mint a Betűbarangolóban
-const TOP_RATIO = 0.16;        // felső segédvonal (felszárak teteje)
-const X_HEIGHT_RATIO = 0.46;   // x-magasság (kis kerek betűk teteje)
-const BASELINE_RATIO = 0.78;   // alapvonal
-const BOTTOM_RATIO = 0.98;     // alsó segédvonal (alszárak alja)
+const TOP_RATIO = 0.10;        // felső segédvonal (felszárak teteje)
+const X_HEIGHT_RATIO = 0.42;   // x-magasság (kis kerek betűk teteje)
+const BASELINE_RATIO = 0.72;   // alapvonal
+const BOTTOM_RATIO = 0.96;     // alsó segédvonal (alszárak alja)
+
+// Playwrite HU em-arányok (becsült)
+const FONT_ASC_FRACTION = 0.72;   // felszár / em (cap height + ascender)
+const FONT_DESC_FRACTION = 0.30;  // alszár / em
 
 const TEMPLATE_COLOR = '#bfdbfe';     // halvány kék — mint a könyvben
 const INK_COLOR = '#1e3a8a';          // sötétkék toll
@@ -40,7 +45,7 @@ const ALPHA_THRESHOLD = 30;
 const FONT_FAMILY = '"Playwrite HU", "Playwrite Magyarország", cursive';
 
 export const WritingCanvas = forwardRef<WritingCanvasHandle, Props>(
-  function WritingCanvas({ template, width, height }, ref) {
+  function WritingCanvas({ template, width, height, repeat = 1 }, ref) {
     const linesRef = useRef<HTMLCanvasElement | null>(null);
     const templateRef = useRef<HTMLCanvasElement | null>(null);
     const userRef = useRef<HTMLCanvasElement | null>(null);
@@ -102,14 +107,19 @@ export const WritingCanvas = forwardRef<WritingCanvasHandle, Props>(
       if (!ctx) return;
       ctx.clearRect(0, 0, width, height);
 
-      const topY = Math.round(height * TOP_RATIO);
       const baselineY = Math.round(height * BASELINE_RATIO);
-      const ascenderZone = baselineY - topY;
+      const ascenderZone = (BASELINE_RATIO - TOP_RATIO) * height;
+      const descenderZone = (BOTTOM_RATIO - BASELINE_RATIO) * height;
 
-      // Playwrite HU: az em ~70-75%-a a felszáras magasság
-      let fontSize = Math.round(ascenderZone / 0.7);
+      // Olyan méret, hogy MIND a felszár (felső segédvonalig), MIND az alszár
+      // (alsó segédvonalig) beférjen — a kisebbik dimenzió döntse el.
+      let fontSize = Math.floor(
+        Math.min(
+          ascenderZone / FONT_ASC_FRACTION,
+          descenderZone / FONT_DESC_FRACTION,
+        ),
+      );
 
-      // Várjuk meg, hogy a font betöltődjön (különben fallback fonttal renderelne)
       try {
         await document.fonts.load(`400 ${fontSize}px "Playwrite HU"`);
       } catch {
@@ -120,16 +130,24 @@ export const WritingCanvas = forwardRef<WritingCanvasHandle, Props>(
       ctx.textBaseline = 'alphabetic';
       ctx.textAlign = 'center';
 
-      // Ha a szó túl széles, kicsinyítsük
-      const margin = 32;
+      // Vízszintes elhelyezés: ismétlés esetén több slot, egyébként egy slot középre
+      const margin = 24;
+      const slots = Math.max(1, repeat);
+      const slotWidth = (width - margin * 2) / slots;
+
+      // Ha túl széles a sablon a slothoz, kicsinyítjük
       let measured = ctx.measureText(template).width;
-      if (measured > width - margin * 2) {
-        fontSize = Math.round(fontSize * (width - margin * 2) / measured);
+      const maxSlotWidth = slotWidth * 0.85;
+      if (measured > maxSlotWidth) {
+        fontSize = Math.floor((fontSize * maxSlotWidth) / measured);
         ctx.font = `400 ${fontSize}px ${FONT_FAMILY}`;
       }
 
       ctx.fillStyle = TEMPLATE_COLOR;
-      ctx.fillText(template, width / 2, baselineY);
+      for (let i = 0; i < slots; i++) {
+        const x = margin + slotWidth * (i + 0.5);
+        ctx.fillText(template, x, baselineY);
+      }
     };
 
     const renderUserStrokes = () => {
@@ -176,7 +194,7 @@ export const WritingCanvas = forwardRef<WritingCanvasHandle, Props>(
         document.fonts.removeEventListener('loadingdone', onFontsLoaded);
       };
       // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [template, width, height]);
+    }, [template, width, height, repeat]);
 
     const toCanvasCoords = (e: React.PointerEvent) => {
       const c = userRef.current!;
