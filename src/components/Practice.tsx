@@ -36,7 +36,6 @@ export function Practice({ mode, items, label, onBack }: Props) {
       }
       return { width: 600, height: 520, repeat: 1 };
     }
-    // 'small' — füzetsor stílus, többszörös ismétlés
     if (mode === 'word') {
       const r = current.length <= 3 ? 4 : current.length <= 5 ? 3 : 2;
       return { width: 1500, height: 220, repeat: r };
@@ -51,8 +50,7 @@ export function Practice({ mode, items, label, onBack }: Props) {
 
   const handleEvaluate = () => {
     const r = canvasRef.current?.evaluate();
-    if (!r) return;
-    if (!r.hasInk) return;
+    if (!r || !r.hasInk) return;
     setResult(r);
   };
 
@@ -73,89 +71,48 @@ export function Practice({ mode, items, label, onBack }: Props) {
     canvasRef.current?.clear();
   };
 
-  const handleSpeak = () => speak(current);
-
   return (
-    <div className="min-h-full flex flex-col p-3 sm:p-6">
-      <header className="flex items-center justify-between gap-3 mb-3">
-        <button
-          onClick={onBack}
-          className="rounded-full bg-white ring-2 ring-amber-200 px-4 py-2 text-base font-semibold text-amber-700 active:scale-95"
-        >
-          ← Vissza
-        </button>
-        <div className="text-center">
-          <div className="text-sm text-slate-500">{label}</div>
-          <div className="text-base font-bold text-slate-700">
-            {index + 1} / {items.length}
+    <div className="h-full flex flex-col">
+      <header className="flex items-center justify-between gap-2 px-2 sm:px-4 py-2 shrink-0">
+        <IconButton onClick={onBack} aria="Vissza a menübe">
+          <span className="text-base">←</span>
+          <span className="hidden sm:inline ml-1 font-semibold">Menü</span>
+        </IconButton>
+
+        <div className="flex items-center gap-3 min-w-0">
+          <div className="text-center min-w-0">
+            <div className="text-xs text-slate-500 truncate max-w-[40vw]">
+              {label}
+            </div>
+            <div className="text-sm font-bold text-slate-700">
+              {index + 1} / {items.length}
+            </div>
           </div>
+          <SizeToggle value={size} onChange={setSize} />
         </div>
-        <button
-          onClick={handleSpeak}
-          className="rounded-full bg-white ring-2 ring-amber-200 px-4 py-2 text-base font-semibold text-amber-700 active:scale-95"
-          title="Hallgasd meg"
-        >
-          🔊 Hang
-        </button>
+
+        <IconButton onClick={() => speak(current)} aria="Hallgasd meg">
+          <span className="text-base">🔊</span>
+        </IconButton>
       </header>
 
-      <div className="flex justify-center mb-2">
-        <SizeToggle value={size} onChange={setSize} />
-      </div>
+      <main className="flex-1 flex items-center justify-center min-h-0 px-2">
+        <WritingCanvas
+          ref={canvasRef}
+          template={current}
+          width={width}
+          height={height}
+          repeat={repeat}
+        />
+      </main>
 
-      <div className="flex-1 flex flex-col items-center justify-center gap-4">
-        <div className="w-full flex justify-center">
-          <WritingCanvas
-            ref={canvasRef}
-            template={current}
-            width={width}
-            height={height}
-            repeat={repeat}
-          />
-        </div>
-
-        <div className="flex gap-3 flex-wrap justify-center">
-          <button
-            onClick={() => canvasRef.current?.undo()}
-            className="rounded-2xl bg-white ring-2 ring-slate-300 px-5 py-3 text-base font-semibold text-slate-700 active:scale-95"
-          >
-            ↶ Vissza
-          </button>
-          <button
-            onClick={() => canvasRef.current?.clear()}
-            className="rounded-2xl bg-white ring-2 ring-slate-300 px-5 py-3 text-base font-semibold text-slate-700 active:scale-95"
-          >
-            🧽 Törlés
-          </button>
-          <button
-            onClick={handleEvaluate}
-            className="rounded-2xl bg-emerald-500 ring-2 ring-emerald-600 px-6 py-3 text-base font-bold text-white active:scale-95 shadow"
-          >
-            ✓ Kész!
-          </button>
-        </div>
-      </div>
-
-      <nav className="flex justify-between items-center pt-3">
-        <button
-          onClick={handlePrev}
-          className="rounded-full bg-amber-100 ring-2 ring-amber-300 px-5 py-3 text-base font-bold text-amber-800 active:scale-95"
-        >
-          ← Előző
-        </button>
-        <div
-          className="text-3xl text-slate-500 tracking-wide"
-          style={{ fontFamily: '"Playwrite HU", cursive' }}
-        >
-          {current}
-        </div>
-        <button
-          onClick={handleNext}
-          className="rounded-full bg-amber-100 ring-2 ring-amber-300 px-5 py-3 text-base font-bold text-amber-800 active:scale-95"
-        >
-          Következő →
-        </button>
-      </nav>
+      <footer className="flex items-center justify-center gap-2 sm:gap-3 px-2 sm:px-4 py-2 shrink-0 flex-wrap">
+        <ToolBtn onClick={handlePrev} variant="amber">← Előző</ToolBtn>
+        <ToolBtn onClick={() => canvasRef.current?.undo()} variant="slate">↶</ToolBtn>
+        <ToolBtn onClick={() => canvasRef.current?.clear()} variant="slate">🧽</ToolBtn>
+        <ToolBtn onClick={handleEvaluate} variant="emerald">✓ Kész!</ToolBtn>
+        <ToolBtn onClick={handleNext} variant="amber">Következő →</ToolBtn>
+      </footer>
 
       {result && (
         <ResultOverlay
@@ -168,6 +125,53 @@ export function Practice({ mode, items, label, onBack }: Props) {
   );
 }
 
+function IconButton({
+  onClick,
+  children,
+  aria,
+}: {
+  onClick: () => void;
+  children: React.ReactNode;
+  aria: string;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      aria-label={aria}
+      className="shrink-0 rounded-full bg-white ring-2 ring-amber-200 px-3 py-2 text-amber-700 active:scale-95"
+    >
+      {children}
+    </button>
+  );
+}
+
+function ToolBtn({
+  onClick,
+  children,
+  variant,
+}: {
+  onClick: () => void;
+  children: React.ReactNode;
+  variant: 'slate' | 'amber' | 'emerald';
+}) {
+  const styles: Record<typeof variant, string> = {
+    slate:
+      'bg-white ring-2 ring-slate-300 text-slate-700 px-3 py-2 text-sm sm:text-base',
+    amber:
+      'bg-amber-100 ring-2 ring-amber-300 text-amber-800 px-3 py-2 text-sm sm:text-base font-bold',
+    emerald:
+      'bg-emerald-500 ring-2 ring-emerald-600 text-white px-4 py-2 sm:px-6 sm:py-3 text-base font-bold shadow',
+  };
+  return (
+    <button
+      onClick={onClick}
+      className={`rounded-2xl active:scale-95 transition ${styles[variant]}`}
+    >
+      {children}
+    </button>
+  );
+}
+
 function SizeToggle({
   value,
   onChange,
@@ -176,15 +180,13 @@ function SizeToggle({
   onChange: (v: Size) => void;
 }) {
   const base =
-    'px-5 py-2 text-sm font-bold rounded-full transition active:scale-95';
+    'px-3 py-1 text-xs sm:text-sm font-bold rounded-full transition active:scale-95';
   return (
-    <div className="inline-flex bg-white ring-2 ring-amber-200 rounded-full p-1 gap-1">
+    <div className="inline-flex bg-white ring-2 ring-amber-200 rounded-full p-0.5 gap-0.5 shrink-0">
       <button
         onClick={() => onChange('big')}
         className={`${base} ${
-          value === 'big'
-            ? 'bg-amber-500 text-white shadow'
-            : 'text-amber-700'
+          value === 'big' ? 'bg-amber-500 text-white shadow' : 'text-amber-700'
         }`}
       >
         Nagy
@@ -192,12 +194,10 @@ function SizeToggle({
       <button
         onClick={() => onChange('small')}
         className={`${base} ${
-          value === 'small'
-            ? 'bg-amber-500 text-white shadow'
-            : 'text-amber-700'
+          value === 'small' ? 'bg-amber-500 text-white shadow' : 'text-amber-700'
         }`}
       >
-        Kicsi (sor)
+        Sor
       </button>
     </div>
   );
@@ -214,14 +214,14 @@ function ResultOverlay({
 }) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-6">
-      <div className="bg-white rounded-3xl p-8 max-w-md w-full text-center shadow-2xl">
+      <div className="bg-white rounded-3xl p-6 sm:p-8 max-w-md w-full text-center shadow-2xl">
         <div className="flex justify-center mb-3">
           <Stars count={result.stars} />
         </div>
-        <div className="text-3xl font-extrabold text-slate-800 mb-1">
+        <div className="text-2xl sm:text-3xl font-extrabold text-slate-800 mb-1">
           {ENCOURAGEMENT[result.stars]}
         </div>
-        <div className="text-slate-500 mb-6">
+        <div className="text-slate-500 mb-5">
           Pontszám: <span className="font-bold text-slate-700">{result.score}</span>
         </div>
         <div className="flex gap-3 justify-center">

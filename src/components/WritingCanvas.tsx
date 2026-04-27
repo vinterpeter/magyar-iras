@@ -285,6 +285,7 @@ export const WritingCanvas = forwardRef<WritingCanvasHandle, Props>(
           width: '100%',
           aspectRatio: `${width} / ${height}`,
           maxWidth: width,
+          maxHeight: '100%',
           touchAction: 'none',
         }}
       >
