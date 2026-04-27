@@ -1,0 +1,225 @@
+import {
+  forwardRef,
+  useEffect,
+  useImperativeHandle,
+  useRef,
+} from 'react';
+
+export type EvalResult = {
+  coverage: number;
+  outside: number;
+  score: number;
+  stars: number;
+  hasInk: boolean;
+};
+
+export type WritingCanvasHandle = {
+  clear: () => void;
+  undo: () => void;
+  evaluate: () => EvalResult;
+};
+
+type Point = { x: number; y: number; pressure: number };
+type Stroke = Point[];
+
+type Props = {
+  template: string;
+  width: number;
+  height: number;
+  fontFamily?: string;
+  fontWeight?: string;
+};
+
+const TEMPLATE_COLOR = '#cbd5e1';
+const INK_COLOR = '#1e3a8a';
+const ALPHA_THRESHOLD = 30;
+
+export const WritingCanvas = forwardRef<WritingCanvasHandle, Props>(
+  function WritingCanvas(
+    { template, width, height, fontFamily, fontWeight = '700' },
+    ref,
+  ) {
+    const templateRef = useRef<HTMLCanvasElement | null>(null);
+    const userRef = useRef<HTMLCanvasElement | null>(null);
+    const strokesRef = useRef<Stroke[]>([]);
+    const currentStrokeRef = useRef<Stroke | null>(null);
+
+    const renderTemplate = () => {
+      const c = templateRef.current;
+      if (!c) return;
+      const ctx = c.getContext('2d', { willReadFrequently: true });
+      if (!ctx) return;
+      ctx.clearRect(0, 0, width, height);
+      ctx.fillStyle = TEMPLATE_COLOR;
+      const isWord = template.length > 1;
+      const targetWidth = width * (isWord ? 0.92 : 0.7);
+      const targetHeight = height * 0.78;
+      // pick a font size that fits
+      let size = Math.min(targetHeight, targetWidth);
+      const family =
+        fontFamily ??
+        '"Andika", "Atkinson Hyperlegible", "Comic Sans MS", "Chalkboard SE", "SF Pro Rounded", system-ui, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      // shrink to fit width if needed
+      ctx.font = `${fontWeight} ${size}px ${family}`;
+      let measured = ctx.measureText(template).width;
+      if (measured > targetWidth) {
+        size = size * (targetWidth / measured);
+        ctx.font = `${fontWeight} ${size}px ${family}`;
+      }
+      ctx.fillText(template, width / 2, height / 2);
+    };
+
+    const renderUserStrokes = () => {
+      const c = userRef.current;
+      if (!c) return;
+      const ctx = c.getContext('2d', { willReadFrequently: true });
+      if (!ctx) return;
+      ctx.clearRect(0, 0, width, height);
+      ctx.strokeStyle = INK_COLOR;
+      ctx.fillStyle = INK_COLOR;
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+      for (const stroke of strokesRef.current) {
+        if (stroke.length === 0) continue;
+        if (stroke.length === 1) {
+          const p = stroke[0];
+          const r = 10 + (p.pressure || 0.5) * 8;
+          ctx.beginPath();
+          ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
+          ctx.fill();
+          continue;
+        }
+        for (let i = 1; i < stroke.length; i++) {
+          const a = stroke[i - 1];
+          const b = stroke[i];
+          ctx.lineWidth = 18 + ((a.pressure + b.pressure) / 2 || 1) * 14;
+          ctx.beginPath();
+          ctx.moveTo(a.x, a.y);
+          ctx.lineTo(b.x, b.y);
+          ctx.stroke();
+        }
+      }
+    };
+
+    useEffect(() => {
+      renderTemplate();
+      renderUserStrokes();
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [template, width, height]);
+
+    const toCanvasCoords = (e: React.PointerEvent) => {
+      const c = userRef.current!;
+      const r = c.getBoundingClientRect();
+      return {
+        x: ((e.clientX - r.left) * width) / r.width,
+        y: ((e.clientY - r.top) * height) / r.height,
+        pressure: e.pressure > 0 ? e.pressure : 0.5,
+      };
+    };
+
+    const onPointerDown = (e: React.PointerEvent) => {
+      // Reject mouse-right-click etc.
+      if (e.button !== 0 && e.pointerType === 'mouse') return;
+      e.preventDefault();
+      (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+      const p = toCanvasCoords(e);
+      const stroke: Stroke = [p];
+      strokesRef.current.push(stroke);
+      currentStrokeRef.current = stroke;
+      renderUserStrokes();
+    };
+
+    const onPointerMove = (e: React.PointerEvent) => {
+      if (!currentStrokeRef.current) return;
+      e.preventDefault();
+      const p = toCanvasCoords(e);
+      currentStrokeRef.current.push(p);
+      renderUserStrokes();
+    };
+
+    const onPointerUp = () => {
+      currentStrokeRef.current = null;
+    };
+
+    useImperativeHandle(
+      ref,
+      () => ({
+        clear: () => {
+          strokesRef.current = [];
+          currentStrokeRef.current = null;
+          renderUserStrokes();
+        },
+        undo: () => {
+          strokesRef.current.pop();
+          currentStrokeRef.current = null;
+          renderUserStrokes();
+        },
+        evaluate: () => {
+          const tCtx = templateRef.current!.getContext('2d')!;
+          const uCtx = userRef.current!.getContext('2d')!;
+          const tData = tCtx.getImageData(0, 0, width, height).data;
+          const uData = uCtx.getImageData(0, 0, width, height).data;
+          let templatePx = 0;
+          let userPx = 0;
+          let intersection = 0;
+          let outside = 0;
+          for (let i = 3; i < tData.length; i += 4) {
+            const tOn = tData[i] > ALPHA_THRESHOLD;
+            const uOn = uData[i] > ALPHA_THRESHOLD;
+            if (tOn) templatePx++;
+            if (uOn) userPx++;
+            if (tOn && uOn) intersection++;
+            else if (uOn) outside++;
+          }
+          const coverage = templatePx > 0 ? intersection / templatePx : 0;
+          const outsideRatio = userPx > 0 ? outside / userPx : 0;
+          const rawScore = coverage * 130 - outsideRatio * 50;
+          const score = Math.max(0, Math.min(100, Math.round(rawScore)));
+          const stars =
+            score >= 90 ? 4 : score >= 70 ? 3 : score >= 45 ? 2 : 1;
+          return {
+            coverage,
+            outside: outsideRatio,
+            score,
+            stars,
+            hasInk: userPx > 50,
+          };
+        },
+      }),
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+      [width, height],
+    );
+
+    return (
+      <div
+        className="relative rounded-3xl bg-white shadow-md ring-2 ring-amber-200 overflow-hidden"
+        style={{
+          width: '100%',
+          aspectRatio: `${width} / ${height}`,
+          maxWidth: width,
+          touchAction: 'none',
+        }}
+      >
+        <canvas
+          ref={templateRef}
+          width={width}
+          height={height}
+          className="absolute inset-0 w-full h-full pointer-events-none"
+        />
+        <canvas
+          ref={userRef}
+          width={width}
+          height={height}
+          className="absolute inset-0 w-full h-full"
+          onPointerDown={onPointerDown}
+          onPointerMove={onPointerMove}
+          onPointerUp={onPointerUp}
+          onPointerCancel={onPointerUp}
+          onPointerLeave={onPointerUp}
+        />
+      </div>
+    );
+  },
+);
